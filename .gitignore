@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# App data
+audio_chunks/
+transcripts/*.txt
+transcripts/*.tmp

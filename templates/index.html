@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lecture Transcriber</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header>
+    <h1>Lecture Transcriber</h1>
+    <button id="settingsToggle" class="icon-btn" title="Settings">&#9881;</button>
+  </header>
+
+  <section id="controls">
+    <div id="status" class="status">Loading model&hellip;</div>
+    <div id="elapsed" class="elapsed">00:00:00</div>
+    <div class="buttons">
+      <button id="startBtn" disabled>Start</button>
+      <button id="stopBtn" disabled>Stop</button>
+      <button id="generateBtn" disabled>Generate Notes</button>
+      <button id="overleafBtn" disabled>Open in Overleaf</button>
+    </div>
+  </section>
+
+  <section id="panes">
+    <div class="pane">
+      <h2>Transcript</h2>
+      <textarea id="transcriptBox" readonly placeholder="Transcript will appear here once the first chunk finishes."></textarea>
+    </div>
+    <div class="pane">
+      <h2>Generated Notes (LaTeX)</h2>
+      <textarea id="notesBox" readonly placeholder="Click &quot;Generate Notes&quot; after stopping a recording."></textarea>
+    </div>
+  </section>
+
+  <div id="settingsPanel" class="settings-panel hidden">
+    <h2>Settings</h2>
+    <form id="settingsForm">
+      <label>Anthropic API key
+        <input type="password" id="apiKey" placeholder="sk-ant-...">
+      </label>
+      <label>Notes model
+        <select id="notesModel">
+          <option value="claude-sonnet-5">Claude Sonnet 5 (recommended)</option>
+          <option value="claude-opus-5">Claude Opus 5 (higher quality, costlier)</option>
+          <option value="claude-haiku-4-5">Claude Haiku 4.5 (cheapest)</option>
+        </select>
+      </label>
+      <label>Transcription language code (blank = auto-detect)
+        <input type="text" id="language" placeholder="en">
+      </label>
+      <label>Vocabulary hint (course jargon, names -- helps accuracy)
+        <input type="text" id="initialPrompt" placeholder="e.g. Prof. Nguyen, mitochondria, Schrodinger">
+      </label>
+      <label>Chunk length (seconds)
+        <input type="number" id="chunkSeconds" min="5" max="120" step="5">
+      </label>
+      <label>Beam size (lower = faster, less accurate)
+        <input type="number" id="beamSize" min="1" max="10" step="1">
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" id="vadFilter">
+        Skip silence (VAD filter)
+      </label>
+      <div class="settings-actions">
+        <button type="submit">Save Settings</button>
+        <span id="settingsSaved" class="saved-msg"></span>
+      </div>
+    </form>
+  </div>
+
+  <div id="errorBanner" class="error-banner hidden"></div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

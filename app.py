@@ -5,8 +5,18 @@ shortcut), then use the page it opens in your browser.
 """
 
 import os
+import sys
 import threading
 import webbrowser
+
+# pythonw.exe has no console, so sys.stdout/stderr are None. Flask/Werkzeug
+# (and any library that prints/logs) crash the instant they try to write to
+# that -- silently, since there's no console to show the error. Give them
+# somewhere harmless to write instead, before anything else runs.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w")
 
 from flask import Flask, jsonify, render_template, request
 

@@ -14,17 +14,34 @@
   const settingsSaved = document.getElementById("settingsSaved");
   const lectureNameInput = document.getElementById("lectureName");
   const sidebarList = document.getElementById("sidebarList");
+  const lectureModePill = document.getElementById("lectureModePill");
+  const lectureModeToggle = document.getElementById("lectureModeToggle");
+  const noticeBanner = document.getElementById("noticeBanner");
 
   let latestDocument = null;   // full generated .tex, for the Overleaf button
   let lastRecorderState = null;
   let lastNotesStatus = null;
   let lastNotesResultPath = null;   // detects switching between two already-"done" sessions
+  let stopReminderShown = false;    // resets each time a new recording starts
+
+  const STOP_REMINDER_SECONDS = 50 * 60;
 
   function showError(msg) {
     errorBanner.textContent = msg;
     errorBanner.classList.remove("hidden");
     setTimeout(() => errorBanner.classList.add("hidden"), 8000);
   }
+
+  function showNotice(msg) {
+    noticeBanner.textContent = msg + "  (click to dismiss)";
+    noticeBanner.classList.remove("hidden");
+  }
+
+  function hideNotice() {
+    noticeBanner.classList.add("hidden");
+  }
+
+  noticeBanner.addEventListener("click", hideNotice);
 
   async function poll() {
     try {
@@ -59,6 +76,17 @@
       startBtn.disabled = true;
       stopBtn.disabled = false;
       generateBtn.disabled = true;
+
+      if (!stopReminderShown && rec.elapsed_seconds >= STOP_REMINDER_SECONDS) {
+        stopReminderShown = true;
+        const msg = "50 minutes recorded — stop if the lecture is over.";
+        showNotice(msg);
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          try {
+            new Notification("Lecture Transcriber", { body: msg, requireInteraction: true });
+          } catch (e) { /* in-page banner already covers it */ }
+        }
+      }
     } else if (rec.state === "finalizing") {
       statusEl.textContent = `Finishing — transcribing remaining audio ` +
         `(${rec.chunks_transcribed}/${rec.chunks_emitted}). Keep the lid open a few more seconds.`;
@@ -67,6 +95,8 @@
     } else if (rec.state === "done") {
       if (data.active_transcript_filename && data.active_transcript_filename !== rec.output_filename) {
         statusEl.textContent = `Viewing "${data.lecture_name}" (transcripts\\${data.active_transcript_filename}).`;
+      } else if (rec.auto_stopped) {
+        statusEl.textContent = `Auto-stopped at 90 minutes. Saved to transcripts\\${rec.output_filename} — safe to close.`;
       } else {
         statusEl.textContent = `Saved to transcripts\\${rec.output_filename} — safe to close.`;
       }
@@ -149,19 +179,33 @@
     notesBox.value = "";
     latestDocument = null;
     overleafBtn.disabled = true;
+    stopReminderShown = false;
+    hideNotice();
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission();   // so the 50-minute reminder can reach you in another window
+    }
     const res = await fetch("/api/start", { method: "POST" });
     const data = await res.json();
     if (!data.ok) {
       showError(data.error);
       startBtn.disabled = false;
+    } else {
+      if (data.lecture_mode_warning) showError(data.lecture_mode_warning);
+      refreshLectureMode();
     }
   });
 
   stopBtn.addEventListener("click", async () => {
     stopBtn.disabled = true;
+    hideNotice();
     const res = await fetch("/api/stop", { method: "POST" });
     const data = await res.json();
-    if (!data.ok) showError(data.error);
+    if (!data.ok) {
+      showError(data.error);
+    } else {
+      if (data.lecture_mode_warning) showError(data.lecture_mode_warning);
+      refreshLectureMode();
+    }
   });
 
   generateBtn.addEventListener("click", async () => {
@@ -279,6 +323,46 @@
     document.body.removeChild(form);
   });
 
+  // ---- lecture mode (lid-close sleep behavior) ----
+  function renderLectureMode(on) {
+    lectureModePill.textContent = on ? "Lecture Mode: ON" : "Lecture Mode: OFF";
+    lectureModePill.classList.toggle("on", on);
+    lectureModeToggle.textContent = on ? "Turn off" : "Turn on";
+    lectureModeToggle.disabled = false;
+    lectureModeToggle.dataset.on = on ? "1" : "0";
+  }
+
+  async function refreshLectureMode() {
+    try {
+      const res = await fetch("/api/lecture_mode");
+      const data = await res.json();
+      renderLectureMode(data.on);
+    } catch (e) { /* leave last known state showing */ }
+  }
+
+  lectureModeToggle.addEventListener("click", async () => {
+    const turnOn = lectureModeToggle.dataset.on !== "1";
+    lectureModeToggle.disabled = true;
+    lectureModeToggle.textContent = "…";
+    try {
+      const res = await fetch("/api/lecture_mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ on: turnOn }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        showError(data.error);
+        refreshLectureMode();
+        return;
+      }
+      renderLectureMode(data.on);
+    } catch (e) {
+      showError("Failed to change lid-close setting: " + e);
+      refreshLectureMode();
+    }
+  });
+
   // ---- settings ----
   settingsToggle.addEventListener("click", () => {
     settingsPanel.classList.toggle("hidden");
@@ -325,5 +409,7 @@
 
   loadSettings();
   loadSidebar();
+  refreshLectureMode();
+  setInterval(refreshLectureMode, 5000);   // catches changes from the desktop shortcuts too
   poll();
 })();

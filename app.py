@@ -7,6 +7,7 @@ shortcut), then use the page it opens in your browser.
 import os
 import sys
 import threading
+import time
 import webbrowser
 
 # pythonw.exe has no console, so sys.stdout/stderr are None. Flask/Werkzeug
@@ -22,6 +23,7 @@ from flask import Flask, jsonify, render_template, request
 
 import engine
 import notes
+import power
 from settings import load_settings, save_settings, masked
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -47,6 +49,8 @@ active_lock = threading.Lock()
 # The transcript Generate Notes / the transcript pane act on -- either the
 # just-finished live recording, or a past session picked from the sidebar.
 active_transcript_path: str | None = None
+
+AUTO_STOP_SECONDS = 90 * 60   # backend-enforced so it works even with the tab closed
 
 
 def _notes_path_for(transcript_path: str) -> str:
@@ -125,7 +129,13 @@ def api_start():
         notes_state["status"] = "idle"
         notes_state["error"] = None
         notes_state["result"] = None
-    return jsonify({"ok": True})
+
+    lecture_mode_warning = None
+    try:
+        power.set_lecture_mode(True)
+    except Exception as e:
+        lecture_mode_warning = f"Recording started, but couldn't enable Lecture Mode automatically: {e}"
+    return jsonify({"ok": True, "lecture_mode_warning": lecture_mode_warning})
 
 
 def _finalize_and_activate(rec: engine.Recorder):
@@ -135,14 +145,42 @@ def _finalize_and_activate(rec: engine.Recorder):
         active_transcript_path = rec.current_output_path()
 
 
+def _stop_recording(rec: engine.Recorder, auto: bool = False) -> str | None:
+    """Kicks off finalize() and turns Lecture Mode back off. Returns a
+    warning message if disabling Lecture Mode failed, else None. Shared by
+    the manual Stop endpoint and the 90-minute auto-stop watchdog so both
+    behave identically."""
+    if auto:
+        rec.auto_stopped = True
+    threading.Thread(target=_finalize_and_activate, args=(rec,), daemon=True).start()
+    try:
+        power.set_lecture_mode(False)
+        return None
+    except Exception as e:
+        return f"Stopped recording, but couldn't disable Lecture Mode automatically: {e}"
+
+
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
     with recorder_lock:
         rec = current_recorder
     if rec is None or rec.state != "recording":
         return jsonify({"ok": False, "error": "Not recording."}), 409
-    threading.Thread(target=_finalize_and_activate, args=(rec,), daemon=True).start()
-    return jsonify({"ok": True})
+    lecture_mode_warning = _stop_recording(rec)
+    return jsonify({"ok": True, "lecture_mode_warning": lecture_mode_warning})
+
+
+def _auto_stop_watchdog():
+    while True:
+        time.sleep(10)
+        with recorder_lock:
+            rec = current_recorder
+        if rec is not None and rec.state == "recording" and rec.start_time is not None:
+            if time.time() - rec.start_time >= AUTO_STOP_SECONDS:
+                _stop_recording(rec, auto=True)
+
+
+threading.Thread(target=_auto_stop_watchdog, daemon=True).start()
 
 
 @app.route("/api/lecture_name", methods=["POST"])
@@ -235,6 +273,22 @@ def api_select_transcript():
             notes_state["result"] = None
 
     return jsonify({"ok": True, "transcript_text": transcript_text})
+
+
+@app.route("/api/lecture_mode", methods=["GET"])
+def api_lecture_mode_get():
+    return jsonify({"on": power.get_lecture_mode()})
+
+
+@app.route("/api/lecture_mode", methods=["POST"])
+def api_lecture_mode_post():
+    data = request.get_json(force=True, silent=True) or {}
+    on = bool(data.get("on"))
+    try:
+        power.set_lecture_mode(on)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Couldn't change the lid-close setting: {e}"}), 500
+    return jsonify({"ok": True, "on": power.get_lecture_mode()})
 
 
 @app.route("/api/settings", methods=["GET"])

@@ -9,7 +9,13 @@
 <body>
   <header>
     <h1>Lecture Transcriber</h1>
-    <button id="settingsToggle" class="icon-btn" title="Settings">&#9881;</button>
+    <div class="header-right">
+      <div class="lecture-mode-widget" title="Whether closing the lid sleeps the laptop">
+        <span id="lectureModePill" class="lecture-mode-pill">Lecture Mode: &hellip;</span>
+        <button id="lectureModeToggle" class="small-btn" disabled>&hellip;</button>
+      </div>
+      <button id="settingsToggle" class="icon-btn" title="Settings">&#9881;</button>
+    </div>
   </header>
 
   <div class="app-layout">
@@ -87,6 +93,7 @@
   </div>
 
   <div id="errorBanner" class="error-banner hidden"></div>
+  <div id="noticeBanner" class="notice-banner hidden"></div>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>

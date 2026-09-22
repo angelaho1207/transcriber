@@ -109,6 +109,7 @@ class Recorder:
         self.start_time: float | None = None
         self.stop_time: float | None = None
         self.lecture_name: str = ""
+        self.auto_stopped: bool = False   # set by app.py's 90-minute watchdog
 
         self.stream: sd.InputStream | None = None
         self.collector_thread: threading.Thread | None = None
@@ -331,4 +332,5 @@ class Recorder:
             "output_path": output_path,
             "output_filename": os.path.basename(output_path) if output_path else None,
             "lecture_name": self.lecture_name,
+            "auto_stopped": self.auto_stopped,
         }

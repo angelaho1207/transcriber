@@ -33,6 +33,12 @@ model_state = {"status": "loading", "error": None, "model": None}
 recorder_lock = threading.Lock()
 current_recorder: engine.Recorder | None = None
 
+notes_lock = threading.Lock()
+# status: idle | generating | done | error -- survives a browser refresh so the
+# notes pane and Overleaf button can be restored even if the tab was reloaded
+# while a generation was in flight.
+notes_state = {"status": "idle", "error": None, "result": None}
+
 
 def _load_model_background():
     try:
@@ -55,10 +61,15 @@ def index():
 def api_state():
     with recorder_lock:
         snap = current_recorder.snapshot() if current_recorder else None
+    with notes_lock:
+        n_status, n_error, n_result = notes_state["status"], notes_state["error"], notes_state["result"]
     return jsonify({
         "model_status": model_state["status"],
         "model_error": model_state["error"],
         "recorder": snap,
+        "notes_status": n_status,
+        "notes_error": n_error,
+        "notes_result": n_result,
     })
 
 
@@ -79,6 +90,10 @@ def api_start():
                 f"security > Microphone)."
             )}), 500
         current_recorder = rec
+    with notes_lock:
+        notes_state["status"] = "idle"
+        notes_state["error"] = None
+        notes_state["result"] = None
     return jsonify({"ok": True})
 
 
@@ -116,17 +131,38 @@ def api_settings_post():
     return jsonify(masked(updated))
 
 
+def _run_generate_notes(transcript_path: str):
+    try:
+        result = notes.generate_notes(transcript_path)
+    except notes.NotesError as e:
+        with notes_lock:
+            notes_state["status"] = "error"
+            notes_state["error"] = str(e)
+        return
+    except Exception as e:
+        with notes_lock:
+            notes_state["status"] = "error"
+            notes_state["error"] = f"Unexpected error: {e}"
+        return
+    with notes_lock:
+        notes_state["status"] = "done"
+        notes_state["result"] = result
+
+
 @app.route("/api/generate_notes", methods=["POST"])
 def api_generate_notes():
     with recorder_lock:
         rec = current_recorder
     if rec is None or not rec.output_path or rec.state != "done":
         return jsonify({"ok": False, "error": "Finish a recording first."}), 409
-    try:
-        result = notes.generate_notes(rec.output_path)
-    except notes.NotesError as e:
-        return jsonify({"ok": False, "error": str(e)}), 400
-    return jsonify({"ok": True, **result})
+    with notes_lock:
+        if notes_state["status"] == "generating":
+            return jsonify({"ok": False, "error": "Already generating notes."}), 409
+        notes_state["status"] = "generating"
+        notes_state["error"] = None
+        notes_state["result"] = None
+    threading.Thread(target=_run_generate_notes, args=(rec.output_path,), daemon=True).start()
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":

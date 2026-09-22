@@ -14,8 +14,8 @@
   const settingsSaved = document.getElementById("settingsSaved");
 
   let latestDocument = null;   // full generated .tex, for the Overleaf button
-  let generating = false;
   let lastRecorderState = null;
+  let lastNotesStatus = null;
 
   function showError(msg) {
     errorBanner.textContent = msg;
@@ -64,7 +64,6 @@
       elapsedEl.textContent = rec.elapsed;
       startBtn.disabled = false;
       stopBtn.disabled = true;
-      if (!generating) generateBtn.disabled = false;
     } else if (rec.state === "error") {
       statusEl.textContent = "Error: " + rec.error;
       startBtn.disabled = false;
@@ -78,6 +77,41 @@
       refreshTranscript();
     }
     lastRecorderState = rec ? rec.state : null;
+
+    applyNotesState(data);
+  }
+
+  // Notes generation runs server-side and survives a browser refresh --
+  // this restores the UI to match whatever the server is actually doing,
+  // whether this tab started the generation or a previous one did.
+  function applyNotesState(data) {
+    const status = data.notes_status;
+    const changed = status !== lastNotesStatus;
+    lastNotesStatus = status;
+
+    if (status === "generating") {
+      generateBtn.disabled = true;
+      generateBtn.textContent = "Generating…";
+      overleafBtn.disabled = true;
+    } else if (status === "done") {
+      generateBtn.disabled = false;
+      generateBtn.textContent = "Generate Notes";
+      if (changed && data.notes_result) {
+        notesBox.value = data.notes_result.full_document;
+        latestDocument = data.notes_result.full_document;
+        if (data.notes_result.truncated) {
+          showError("Notes may be incomplete: the model hit its output limit. Consider a shorter lecture or splitting it.");
+        }
+      }
+      overleafBtn.disabled = !latestDocument;
+    } else if (status === "error") {
+      generateBtn.disabled = false;
+      generateBtn.textContent = "Generate Notes";
+      if (changed) showError(data.notes_error);
+    } else {
+      generateBtn.textContent = "Generate Notes";
+      if (lastRecorderState === "done") generateBtn.disabled = false;
+    }
   }
 
   async function refreshTranscript() {
@@ -112,27 +146,24 @@
   });
 
   generateBtn.addEventListener("click", async () => {
-    generating = true;
     generateBtn.disabled = true;
     generateBtn.textContent = "Generating…";
     notesBox.value = "";
+    latestDocument = null;
+    overleafBtn.disabled = true;
     try {
       const res = await fetch("/api/generate_notes", { method: "POST" });
       const data = await res.json();
       if (!data.ok) {
         showError(data.error);
-      } else {
-        notesBox.value = data.full_document;
-        latestDocument = data.full_document;
-        overleafBtn.disabled = false;
-        if (data.truncated) {
-          showError("Notes may be incomplete: the model hit its output limit. Consider a shorter lecture or splitting it.");
-        }
+        generateBtn.disabled = false;
+        generateBtn.textContent = "Generate Notes";
       }
+      // On success, the next poll() tick picks up notes_status "generating"
+      // -> "done" from the server -- this keeps working even if this tab
+      // (or another one) is refreshed before generation finishes.
     } catch (e) {
-      showError("Failed to generate notes: " + e);
-    } finally {
-      generating = false;
+      showError("Failed to start note generation: " + e);
       generateBtn.disabled = false;
       generateBtn.textContent = "Generate Notes";
     }

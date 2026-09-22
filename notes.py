@@ -4,6 +4,7 @@ import os
 
 import anthropic
 
+from latex_sanitize import sanitize_latex_body
 from settings import load_settings
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,7 +33,10 @@ def load_template_preamble() -> str:
 
 def build_full_document(body: str) -> str:
     preamble = load_template_preamble().rstrip()
-    return f"{preamble}\n\n\\begin{{document}}\n\n{body.strip()}\n\n\\end{{document}}\n"
+    return (
+        f"{preamble}\n\n\\begin{{document}}\n\n\\maketitle\n\n"
+        f"{body.strip()}\n\n\\end{{document}}\n"
+    )
 
 
 def generate_notes(transcript_path: str) -> dict:
@@ -74,6 +78,7 @@ def generate_notes(transcript_path: str) -> dict:
     if not body:
         raise NotesError("Claude returned an empty response.")
 
+    body = sanitize_latex_body(body)
     truncated = response.stop_reason == "max_tokens"
     full_document = build_full_document(body)
 

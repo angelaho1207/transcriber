@@ -12,6 +12,8 @@ Rules:
   \begin{document}, \end{document}, or \maketitle -- those are added
   separately from a fixed template. Do not repeat the lecture title as a
   heading at the top -- start directly with the first \section.
+- Never insert \newpage or any other manual page break between sections --
+  let the document flow continuously from one section to the next.
 - If a stretch of the transcript is garbled beyond reasonable inference,
   note it briefly (e.g. "[unclear: possibly discussing ...]") rather than
   inventing content.

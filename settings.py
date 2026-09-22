@@ -10,6 +10,7 @@ SETTINGS_PATH = os.path.join(CONFIG_DIR, "settings.json")
 
 DEFAULTS = {
     "anthropic_api_key": "",
+    "author_name": "",         # used in the notes document's header/title
     "notes_model": "claude-sonnet-5",
     "language": "en",          # set to null/None to auto-detect per chunk
     "initial_prompt": "",      # course jargon / names to bias transcription toward

@@ -9,6 +9,7 @@ app.py drives it and reports its state over SSE.
 
 import os
 import queue
+import re
 import threading
 import time
 import wave
@@ -55,6 +56,21 @@ def _clear_dir(path: str) -> None:
             pass
 
 
+_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_WHITESPACE_RE = re.compile(r"\s+")
+_SLUG_MAX_LEN = 60
+
+
+def slugify_lecture_name(name: str) -> str:
+    """A lecture name made safe as a Windows filename component. Empty if
+    the name has no usable characters (e.g. it was blank or pure emoji)."""
+    name = _INVALID_FILENAME_CHARS.sub("", name).strip()
+    name = _WHITESPACE_RE.sub(" ", name).strip()
+    name = name.replace(" ", "_")
+    name = name.strip("._ ")
+    return name[:_SLUG_MAX_LEN].rstrip("._ ")
+
+
 def load_model(settings: dict) -> WhisperModel:
     return WhisperModel(
         "distil-large-v3",
@@ -86,8 +102,13 @@ class Recorder:
         self.state = "idle"          # idle | recording | finalizing | done | error
         self.error: str | None = None
         self.output_path: str | None = None
+        self.output_lock = threading.Lock()   # guards output_path + the file itself,
+                                               # since the transcriber thread writes it
+                                               # while a rename can arrive from a Flask
+                                               # request thread at any moment
         self.start_time: float | None = None
         self.stop_time: float | None = None
+        self.lecture_name: str = ""
 
         self.stream: sd.InputStream | None = None
         self.collector_thread: threading.Thread | None = None
@@ -186,22 +207,81 @@ class Recorder:
 
             self._write_output()
 
+    # ---- lecture naming ----
+    def _build_filename_base(self) -> str:
+        stamp = dt.datetime.fromtimestamp(self.start_time).strftime("%Y-%m-%d_%H-%M-%S")
+        slug = slugify_lecture_name(self.lecture_name) if self.lecture_name else ""
+        return f"{slug}_{stamp}" if slug else f"transcript_{stamp}"
+
+    @staticmethod
+    def _sidecar_path(output_path: str) -> str:
+        if output_path.endswith(".txt"):
+            return output_path[:-4] + ".name.txt"
+        return output_path + ".name.txt"
+
+    def set_lecture_name(self, name: str) -> None:
+        """Safe to call any time -- before the file exists, while it's being
+        actively written by the transcriber thread, or long after Stop."""
+        with self.output_lock:
+            changed = name != self.lecture_name
+            self.lecture_name = name
+            if self.output_path is None:
+                return   # baked into the filename whenever _write_output first runs
+            if changed:
+                self._rename_output_locked()
+            else:
+                self._write_name_sidecar_locked()
+
+    def _rename_output_locked(self) -> None:
+        """Rename the transcript (and its sidecar) to match the current lecture
+        name. Caller must hold output_lock. Renaming just the display name is
+        not enough -- the filename itself should reflect it too."""
+        new_path = os.path.join(TRANSCRIPTS_DIR, f"{self._build_filename_base()}.txt")
+        if new_path != self.output_path:
+            old_path, old_sidecar = self.output_path, self._sidecar_path(self.output_path)
+            try:
+                if os.path.exists(old_path):
+                    os.replace(old_path, new_path)
+                self.output_path = new_path
+            except OSError:
+                pass   # keep the old path if the rename fails; name is still tracked
+            else:
+                try:
+                    os.remove(old_sidecar)
+                except OSError:
+                    pass
+        self._write_name_sidecar_locked()
+
+    def _write_name_sidecar_locked(self) -> None:
+        if not self.lecture_name or not self.output_path:
+            return
+        try:
+            with open(self._sidecar_path(self.output_path), "w", encoding="utf-8") as f:
+                f.write(self.lecture_name)
+        except OSError:
+            pass
+
     # ---- output ----
     def _write_output(self) -> None:
         if self.start_time is None:
             return
-        if self.output_path is None:
-            stamp = dt.datetime.fromtimestamp(self.start_time).strftime("%Y-%m-%d_%H-%M-%S")
-            self.output_path = os.path.join(TRANSCRIPTS_DIR, f"transcript_{stamp}.txt")
+        with self.output_lock:
+            if self.output_path is None:
+                self.output_path = os.path.join(TRANSCRIPTS_DIR, f"{self._build_filename_base()}.txt")
+                self._write_name_sidecar_locked()  # flush a name set before the first chunk finished
 
-        with self.results_lock:
-            parts = [self.results[i] for i in sorted(self.results)]
-        body = "\n\n".join(p for p in parts if p)
+            with self.results_lock:
+                parts = [self.results[i] for i in sorted(self.results)]
+            body = "\n\n".join(p for p in parts if p)
 
-        tmp = self.output_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(body + "\n" if body else "")
-        os.replace(tmp, self.output_path)
+            tmp = self.output_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(body + "\n" if body else "")
+            os.replace(tmp, self.output_path)
+
+    def current_output_path(self) -> str | None:
+        with self.output_lock:
+            return self.output_path
 
     def transcript_text(self) -> str:
         with self.results_lock:
@@ -239,6 +319,8 @@ class Recorder:
             elapsed = self.stop_time - self.start_time
         else:
             elapsed = 0
+        with self.output_lock:
+            output_path = self.output_path
         return {
             "state": self.state,
             "error": self.error,
@@ -246,6 +328,7 @@ class Recorder:
             "chunks_transcribed": self.chunks_transcribed,
             "elapsed": _hms(elapsed),
             "elapsed_seconds": int(elapsed),
-            "output_path": self.output_path,
-            "output_filename": os.path.basename(self.output_path) if self.output_path else None,
+            "output_path": output_path,
+            "output_filename": os.path.basename(output_path) if output_path else None,
+            "lecture_name": self.lecture_name,
         }

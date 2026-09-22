@@ -39,6 +39,72 @@ h2 { font-size: 1rem; margin: 0 0 8px; color: var(--muted); }
   cursor: pointer;
 }
 
+.app-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+#sidebar {
+  flex: 0 0 240px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  position: sticky;
+  top: 20px;
+}
+
+#mainColumn {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .app-layout { flex-direction: column; }
+  #sidebar { flex-basis: auto; width: 100%; max-height: 240px; position: static; }
+}
+
+.sidebar-list { display: flex; flex-direction: column; gap: 6px; }
+
+.sidebar-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.sidebar-item:hover { background: var(--bg); border-color: var(--border); }
+
+.sidebar-item.active {
+  background: #eaf3ee;
+  border-color: var(--accent);
+}
+
+.sidebar-item .name {
+  display: block;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-item .meta {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 2px;
+}
+
+.sidebar-empty { color: var(--muted); font-size: 0.85rem; }
+
 #controls {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -46,6 +112,29 @@ h2 { font-size: 1rem; margin: 0 0 8px; color: var(--muted); }
   padding: 20px;
   text-align: center;
   margin-bottom: 20px;
+}
+
+.lecture-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.lecture-name-row label {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.lecture-name-row input {
+  width: 320px;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
 }
 
 .status { font-size: 1rem; margin-bottom: 6px; }

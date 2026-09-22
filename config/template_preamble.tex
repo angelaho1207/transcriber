@@ -1,11 +1,23 @@
-\documentclass[11pt]{article}
-
-\usepackage[margin=1in]{geometry}
+\documentclass[11pt]{scrartcl}
 \usepackage{amsmath}
 \usepackage{amssymb}
-\usepackage{hyperref}
-\usepackage{enumitem}
-\usepackage{graphicx}
+\usepackage{amsthm}
+\usepackage{geometry}
+\usepackage{booktabs}
+\geometry{left=0.5in, right=0.5in, top=0.75in, bottom=1in}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
 
-\title{Lecture Notes}
-\date{\today}
+\pagestyle{fancy}
+\fancyhf{}
+\cfoot{\thepage}
+\lhead{<<AUTHOR_NAME>>}
+\rhead{<<DATE>>}
+\chead{<<LECTURE_NAME>>}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\titleformat{\section}{\normalfont\Large\bfseries}{\S\arabic{section}}{1em}{}
+
+\title{<<LECTURE_NAME>>}
+\author{<<AUTHOR_NAME>>}
+\date{<<DATE>>}

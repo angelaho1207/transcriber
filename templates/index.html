@@ -12,33 +12,49 @@
     <button id="settingsToggle" class="icon-btn" title="Settings">&#9881;</button>
   </header>
 
-  <section id="controls">
-    <div id="status" class="status">Loading model&hellip;</div>
-    <div id="elapsed" class="elapsed">00:00:00</div>
-    <div class="buttons">
-      <button id="startBtn" disabled>Start</button>
-      <button id="stopBtn" disabled>Stop</button>
-      <button id="generateBtn" disabled>Generate Notes</button>
-      <button id="overleafBtn" disabled>Open in Overleaf</button>
-    </div>
-  </section>
+  <div class="app-layout">
+    <aside id="sidebar">
+      <h2>Past Sessions</h2>
+      <div id="sidebarList" class="sidebar-list"></div>
+    </aside>
 
-  <section id="panes">
-    <div class="pane">
-      <h2>Transcript</h2>
-      <textarea id="transcriptBox" readonly placeholder="Transcript will appear here once the first chunk finishes."></textarea>
-    </div>
-    <div class="pane">
-      <h2>Generated Notes (LaTeX)</h2>
-      <textarea id="notesBox" readonly placeholder="Click &quot;Generate Notes&quot; after stopping a recording."></textarea>
-    </div>
-  </section>
+    <main id="mainColumn">
+      <section id="controls">
+        <div class="lecture-name-row">
+          <label for="lectureName">Lecture name</label>
+          <input type="text" id="lectureName" placeholder="e.g. Linear Algebra - Lecture 5" autocomplete="off">
+        </div>
+        <div id="status" class="status">Loading model&hellip;</div>
+        <div id="elapsed" class="elapsed">00:00:00</div>
+        <div class="buttons">
+          <button id="startBtn" disabled>Start</button>
+          <button id="stopBtn" disabled>Stop</button>
+          <button id="generateBtn" disabled>Generate Notes</button>
+          <button id="overleafBtn" disabled>Open in Overleaf</button>
+        </div>
+      </section>
+
+      <section id="panes">
+        <div class="pane">
+          <h2>Transcript</h2>
+          <textarea id="transcriptBox" readonly placeholder="Transcript will appear here once the first chunk finishes."></textarea>
+        </div>
+        <div class="pane">
+          <h2>Generated Notes (LaTeX)</h2>
+          <textarea id="notesBox" readonly placeholder="Click &quot;Generate Notes&quot; after stopping a recording."></textarea>
+        </div>
+      </section>
+    </main>
+  </div>
 
   <div id="settingsPanel" class="settings-panel hidden">
     <h2>Settings</h2>
     <form id="settingsForm">
       <label>Anthropic API key
         <input type="password" id="apiKey" placeholder="sk-ant-...">
+      </label>
+      <label>Your name (for the notes document's header/title)
+        <input type="text" id="authorName" placeholder="e.g. Angela Ho">
       </label>
       <label>Notes model
         <select id="notesModel">

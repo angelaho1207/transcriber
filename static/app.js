@@ -12,10 +12,13 @@
   const settingsPanel = document.getElementById("settingsPanel");
   const settingsForm = document.getElementById("settingsForm");
   const settingsSaved = document.getElementById("settingsSaved");
+  const lectureNameInput = document.getElementById("lectureName");
+  const sidebarList = document.getElementById("sidebarList");
 
   let latestDocument = null;   // full generated .tex, for the Overleaf button
   let lastRecorderState = null;
   let lastNotesStatus = null;
+  let lastNotesResultPath = null;   // detects switching between two already-"done" sessions
 
   function showError(msg) {
     errorBanner.textContent = msg;
@@ -44,7 +47,9 @@
       statusEl.textContent = "Model failed to load: " + data.model_error;
       startBtn.disabled = true;
     } else if (!rec) {
-      statusEl.textContent = "Ready. Click Start.";
+      statusEl.textContent = data.active_transcript_filename
+        ? `Viewing "${data.lecture_name}" (transcripts\\${data.active_transcript_filename}).`
+        : "Ready. Click Start.";
       startBtn.disabled = false;
       stopBtn.disabled = true;
     } else if (rec.state === "recording") {
@@ -60,7 +65,11 @@
       startBtn.disabled = true;
       stopBtn.disabled = true;
     } else if (rec.state === "done") {
-      statusEl.textContent = `Saved to transcripts\\${rec.output_filename} — safe to close.`;
+      if (data.active_transcript_filename && data.active_transcript_filename !== rec.output_filename) {
+        statusEl.textContent = `Viewing "${data.lecture_name}" (transcripts\\${data.active_transcript_filename}).`;
+      } else {
+        statusEl.textContent = `Saved to transcripts\\${rec.output_filename} — safe to close.`;
+      }
       elapsedEl.textContent = rec.elapsed;
       startBtn.disabled = false;
       stopBtn.disabled = true;
@@ -75,10 +84,17 @@
     }
     if (rec && rec.state === "done" && lastRecorderState !== "done") {
       refreshTranscript();
+      loadSidebar();   // a new transcript just appeared
     }
     lastRecorderState = rec ? rec.state : null;
 
     applyNotesState(data);
+    highlightSidebar(data.active_transcript_filename);
+
+    // Don't clobber the field while the user is actively typing in it.
+    if (document.activeElement !== lectureNameInput) {
+      lectureNameInput.value = data.lecture_name || "";
+    }
   }
 
   // Notes generation runs server-side and survives a browser refresh --
@@ -86,8 +102,10 @@
   // whether this tab started the generation or a previous one did.
   function applyNotesState(data) {
     const status = data.notes_status;
-    const changed = status !== lastNotesStatus;
+    const resultPath = data.notes_result ? data.notes_result.notes_path : null;
+    const changed = status !== lastNotesStatus || resultPath !== lastNotesResultPath;
     lastNotesStatus = status;
+    lastNotesResultPath = resultPath;
 
     if (status === "generating") {
       generateBtn.disabled = true;
@@ -102,6 +120,7 @@
         if (data.notes_result.truncated) {
           showError("Notes may be incomplete: the model hit its output limit. Consider a shorter lecture or splitting it.");
         }
+        loadSidebar();   // that session now has notes -- refresh its badge
       }
       overleafBtn.disabled = !latestDocument;
     } else if (status === "error") {
@@ -169,6 +188,81 @@
     }
   });
 
+  async function sendLectureName() {
+    try {
+      await fetch("/api/lecture_name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: lectureNameInput.value }),
+      });
+    } catch (e) { /* next poll/blur retries */ }
+  }
+  lectureNameInput.addEventListener("blur", sendLectureName);
+  lectureNameInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); lectureNameInput.blur(); }
+  });
+
+  // ---- past sessions sidebar ----
+  function fmtWhen(epochSeconds) {
+    const d = new Date(epochSeconds * 1000);
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
+      " " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+
+  function renderSidebar(items) {
+    sidebarList.innerHTML = "";
+    if (items.length === 0) {
+      sidebarList.innerHTML = '<div class="sidebar-empty">No past sessions yet.</div>';
+      return;
+    }
+    for (const item of items) {
+      const btn = document.createElement("button");
+      btn.className = "sidebar-item";
+      btn.dataset.filename = item.filename;
+      const notesBadge = item.has_notes ? " ✓ notes" : "";
+      btn.innerHTML =
+        `<span class="name">${item.lecture_name}</span>` +
+        `<span class="meta">${fmtWhen(item.modified)}${notesBadge}</span>`;
+      btn.addEventListener("click", () => selectTranscript(item.filename));
+      sidebarList.appendChild(btn);
+    }
+  }
+
+  async function loadSidebar() {
+    try {
+      const res = await fetch("/api/transcripts");
+      const data = await res.json();
+      renderSidebar(data.items || []);
+      // highlightSidebar() runs on the next poll tick and re-marks the active item
+    } catch (e) { /* sidebar just stays as-is */ }
+  }
+
+  function highlightSidebar(activeFilename) {
+    for (const el of sidebarList.querySelectorAll(".sidebar-item")) {
+      el.classList.toggle("active", el.dataset.filename === activeFilename);
+    }
+  }
+
+  async function selectTranscript(filename) {
+    try {
+      const res = await fetch("/api/select_transcript", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename }),
+      });
+      const data = await res.json();
+      if (!data.ok) { showError(data.error); return; }
+      transcriptBox.value = data.transcript_text;
+      transcriptBox.scrollTop = 0;
+      notesBox.value = "";
+      latestDocument = null;
+      const stateRes = await fetch("/api/state");
+      applyState(await stateRes.json());
+    } catch (e) {
+      showError("Failed to load that transcript: " + e);
+    }
+  }
+
   overleafBtn.addEventListener("click", () => {
     if (!latestDocument) return;
     const form = document.createElement("form");
@@ -194,6 +288,7 @@
     const res = await fetch("/api/settings");
     const s = await res.json();
     document.getElementById("apiKey").value = s.anthropic_api_key || "";
+    document.getElementById("authorName").value = s.author_name || "";
     document.getElementById("notesModel").value = s.notes_model;
     document.getElementById("language").value = s.language || "";
     document.getElementById("initialPrompt").value = s.initial_prompt || "";
@@ -206,6 +301,7 @@
     e.preventDefault();
     const payload = {
       anthropic_api_key: document.getElementById("apiKey").value,
+      author_name: document.getElementById("authorName").value,
       notes_model: document.getElementById("notesModel").value,
       language: document.getElementById("language").value.trim(),
       initial_prompt: document.getElementById("initialPrompt").value,
@@ -228,5 +324,6 @@
   });
 
   loadSettings();
+  loadSidebar();
   poll();
 })();

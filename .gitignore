@@ -8,5 +8,6 @@ venv/
 audio_chunks/
 transcripts/*.txt
 transcripts/*.tmp
+transcripts/*.name.txt
 notes/*.tex
 config/settings.json
